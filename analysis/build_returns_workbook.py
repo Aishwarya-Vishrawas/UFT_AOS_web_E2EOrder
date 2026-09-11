@@ -1108,6 +1108,134 @@ for a, b in notes:
 ns.column_dimensions["A"].width = 24
 ns.column_dimensions["B"].width = 110
 
+
+# ---------------- Summary (built last, moved to the front) ----------------
+sm = wb.create_sheet("Summary")
+sm["A1"] = "Pidilite Industries - Beta, Cost of Capital and DCF Valuation"; sm["A1"].font = Font(name=FONT, size=16, bold=True, color="1F3864")
+sm["A2"] = "Summary of key outputs. Every figure is linked live from the sheet that computes it - nothing here is retyped."
+sm["A2"].font = Font(name=FONT, size=10, italic=True)
+
+def puts(row, label, value, fmt=None, note=None, kind="link", indent=0):
+    return put(sm, row, label, value, fmt, note, kind, indent, note_col=3)
+
+def band2(row, text):
+    c = sm.cell(row=row, column=1, value=text)
+    c.font = Font(name=FONT, size=11, bold=True, color="FFFFFF"); c.fill = hdr_fill
+    for col in (2, 3):
+        sm.cell(row=row, column=col).fill = hdr_fill
+    return row + 1
+
+def big(row):
+    sm.cell(row=row, column=2).font = Font(name=FONT, size=12, bold=True, color="C00000")
+    sm.cell(row=row, column=2).fill = key_fill
+
+r = 4
+r = band2(r, "SCOPE")
+r = puts(r, "Company", "Pidilite Industries Ltd (NSE: PIDILITIND)", None,
+         "Read as the requested 'Pidilite Inc' - no separately listed entity carries that exact name.", "formula")
+r = puts(r, "Market index", "NIFTY 50 (^NSEI)", None, "The x variable in the regression and the market proxy in CAPM.", "formula")
+r = puts(r, "Return window - from", f"=Data!A2", "yyyy-mm-dd", "Five years of daily bars, rolled forward each time the workbook is rebuilt.")
+r = puts(r, "Return window - to", f"=Data!A{last}", "yyyy-mm-dd")
+r = puts(r, "Trading days / return observations", f"=Regression!B{ROW['n']}", "#,##0", "Sessions on which both the index and the stock traded.")
+r += 1
+
+r = band2(r, "1. BETA  (Regression sheet)")
+S_B = r
+r = puts(r, "Beta - slope of Pidilite on NIFTY 50", f"=Regression!B{ROW['slope']}", "0.0000",
+         "Below 1.0: Pidilite moves about 0.69% for each 1% move in the index. A defensive, below-market beta."); big(S_B)
+r = puts(r, "R-squared", f"=Regression!B{ROW['r2']}", "0.0000",
+         "The index explains only about a fifth of Pidilite's daily variance; the rest is stock-specific.")
+r = puts(r, "Correlation with NIFTY 50", f"=Regression!B{ROW['corr']}", "0.0000")
+r = puts(r, "Annualised volatility - Pidilite", f"=Regression!B{ROW['ay']}", "0.00%")
+r = puts(r, "Annualised volatility - NIFTY 50", f"=Regression!B{ROW['ax']}", "0.00%")
+r += 1
+
+r = band2(r, "2. COST OF EQUITY  (Cost of Equity sheet)")
+r = puts(r, "Risk-free rate - India 10Y G-Sec", f"='Cost of Equity'!B{R_RF}", "0.00%", "Benchmark yield at 10-Sep-2026.")
+r = puts(r, "Market risk premium used", f"='Cost of Equity'!B{R_SEL}", "0.00%",
+         "Damodaran implied India ERP. A trailing 5-year realised premium is near zero on this window and is not usable - "
+         "see approaches A, B and C on the Cost of Equity sheet.")
+S_KE = r
+r = puts(r, "COST OF EQUITY (Ke)", f"='Cost of Equity'!B{R_KE}", "0.00%", "Ke = Rf + beta x MRP."); big(S_KE)
+r += 1
+
+r = band2(r, "3. COST OF DEBT  (Cost of Debt sheet)")
+r = puts(r, "Total interest, FY2026 (INR crore)", f"='Cost of Debt'!{lastcol}{R_INT}", "#,##0.00", "Consolidated finance costs.")
+r = puts(r, "Total borrowings, FY2026 (INR crore)", f"='Cost of Debt'!{lastcol}{R_BOR}", "#,##0.00",
+         "As reported, including Ind AS 116 lease liabilities - of which only about INR 106 crore is actual borrowing.")
+r = puts(r, "Cost of debt, pre-tax (Kd)", f"='Cost of Debt'!{lastcol}{R_KDC}", "0.00%", "Total interest / total borrowings.")
+r = puts(r, "Effective tax rate", f"='Cost of Debt'!{lastcol}{R_ETR}", "0.00%")
+S_KD = r
+r = puts(r, "COST OF DEBT, AFTER TAX", f"='Cost of Debt'!{lastcol}{R_ATK}", "0.00%"); big(S_KD)
+r += 1
+
+r = band2(r, "4. WACC  (WACC sheet)")
+r = puts(r, "Market value of equity (INR crore)", f"=WACC!B{W_E}", "#,##0.00")
+r = puts(r, "Total borrowings (INR crore)", f"=WACC!B{W_D}", "#,##0.00")
+r = puts(r, "Weight of equity", f"=WACC!B{W_WE}", "0.00%")
+r = puts(r, "Weight of debt", f"=WACC!B{W_WD}", "0.00%", "Under 1%, so WACC lands within a basis point of Ke.")
+S_W = r
+r = puts(r, "WACC", f"=WACC!B{W_WACC}", "0.00%"); big(S_W)
+r = puts(r, "Net debt (INR crore)", f"=WACC!B{W_ND}", "#,##0.00",
+         "Negative - cash and short-term investments exceed borrowings, so Pidilite is NET CASH.")
+r += 1
+
+r = band2(r, "5. DCF VALUATION  (DCF and DCF 10Y sheets)")
+r = puts(r, "Enterprise value, 5-year base case (INR crore)", f"=DCF!B{D_EV}", "#,##0.00")
+r = puts(r, "    Terminal value as % of EV", f"=DCF!B{D_TVP}", "0.00%", "Most of the answer sits in the terminal assumption.")
+S_V5 = r
+r = puts(r, "Value per share - 5-year base case (INR)", f"=DCF!B{D_VPS}", "#,##0.00"); big(S_V5)
+r = puts(r, "    Terminal value as % of EV, 10-year", f"='DCF 10Y'!B{X_TVP}", "0.00%",
+         "Falls sharply against the 5-year case - a better-conditioned model, since less rests on the perpetuity.")
+S_V10 = r
+r = puts(r, "Value per share - 10-year scenario (INR)", f"='DCF 10Y'!B{X_VPS}", "#,##0.00",
+         "The only changes from the base case are the forecast window and the growth path."); big(S_V10)
+S_MP = r
+r = puts(r, "Current market price (INR)", f"=DCF!B{D_MP}", "#,##0.00")
+r = puts(r, "    Implied upside - 5-year base case", f"=DCF!B{D_UP}", "0.00%")
+r = puts(r, "    Implied upside - 10-year scenario", f"='DCF 10Y'!B{X_U10}", "0.00%")
+r += 1
+
+r = band2(r, "6. REVERSE DCF - WHAT THE MARKET IS PRICING")
+r = puts(r, "Implied perpetual growth - 5-year forecast", f"=DCF!B{D_IG}", "0.00%")
+r = puts(r, "Implied perpetual growth - 10-year forecast", f"='DCF 10Y'!B{X_IG}", "0.00%")
+r = puts(r, "Compare with the risk-free rate", f"='Cost of Equity'!B{R_RF}", "0.00%",
+         "Both implied rates sit ABOVE the risk-free rate. No company grows faster than its economy in perpetuity, so the "
+         "market is pricing stronger growth, higher margins or a lower risk premium than these models assume.")
+r += 1
+
+r = band2(r, "HOW TO READ THIS")
+for txt in [
+    "The sheets are chained. Change the market risk premium on the Cost of Equity sheet and it flows through Ke, WACC and both DCFs.",
+    "Blue cells are hardcoded inputs, green cells are links from another sheet, black cells are formulas. Every input is sourced on the Notes sheet.",
+    "The valuation gap is a statement about the assumptions, not a recommendation. Section 6 locates where the gap actually lives.",
+    "NSE returns HTTP 403 to automated access, so financials come from Yahoo Finance cross-checked line by line against screener.in; every figure agreed.",
+]:
+    sm.cell(row=r, column=1, value="-  " + txt).font = base
+    r += 1
+r += 1
+
+r = band2(r, "SHEET INDEX")
+for nm, desc in [
+    ("Data", "Five years of daily closes, adjusted closes and daily % returns for both instruments."),
+    ("Regression", "OLS of Pidilite returns on NIFTY 50 returns, with the scatter chart and fitted line."),
+    ("Cost of Equity", "CAPM, three market risk premium approaches, and a beta x MRP sensitivity grid."),
+    ("Cost of Debt", "Interest over borrowings, FY2023-FY2026, closing and average, with the lease split."),
+    ("WACC", "Market-value weights, component costs and a target-gearing sensitivity."),
+    ("DCF", "Five-year FCFF forecast, terminal value, sensitivity grid and reverse DCF."),
+    ("DCF 10Y", "Ten-year scenario, controlled against the base case."),
+    ("Notes", "Every source, definition, assumption and caveat."),
+]:
+    sm.cell(row=r, column=1, value=nm).font = bold
+    sm.cell(row=r, column=3, value=desc).font = base
+    r += 1
+
+sm.column_dimensions["A"].width = 44
+sm.column_dimensions["B"].width = 18
+sm.column_dimensions["C"].width = 104
+sm.sheet_view.showGridLines = False
+wb.move_sheet("Summary", offset=-(len(wb.sheetnames) - 1))
+
 wb.calculation.fullCalcOnLoad = True
 wb.save(OUT)
 print("saved", OUT)
