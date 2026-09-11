@@ -597,6 +597,208 @@ for col in "BCDEFG":
     wc.column_dimensions[col].width = 15
 wc.column_dimensions["H"].width = 100
 
+
+# ---------------- DCF ----------------
+# Historical actuals (INR crore), Pidilite consolidated, FY2023-FY2026.
+# Same Yahoo/screener.in source as the Cost of Debt sheet.
+H_YRS  = ["FY2023", "FY2024", "FY2025", "FY2026"]
+H_REV  = [11751.62, 12337.07, 13092.76, 14551.26]
+H_EBIT = [1752.01, 2402.73, 2673.41, 3147.99]     # operating income, i.e. EXCLUDING other income
+H_DA   = [269.74, 320.30, 350.45, 388.99]
+H_CAP  = [505.35, 558.71, 452.34, 592.77]
+H_NWC  = [1459.14, 768.97, 824.87, 836.44]        # current assets less cash & investments,
+                                                  # less current liabilities excluding current debt
+P_YRS  = ["FY2027E", "FY2028E", "FY2029E", "FY2030E", "FY2031E"]
+P_GROW = [0.10, 0.09, 0.08, 0.07, 0.06]           # fading toward the terminal rate
+A_MARGIN, A_DA, A_CAPEX, A_NWC, A_TG = 0.2163, 0.0265, 0.0409, 0.0600, 0.0500
+
+dc = wb.create_sheet("DCF")
+dc["A1"] = "Cash Flow Projections and DCF Valuation"; dc["A1"].font = title
+dc["A2"] = "FCFF  =  EBIT x (1 - tax)  +  D&A  -  Capex  -  Increase in net working capital"
+dc["A2"].font = Font(name=FONT, size=10, italic=True)
+dc["A3"] = "Blue = hardcoded input   Green = linked from another sheet   Black = formula.  All figures INR crore unless stated."
+dc["A3"].font = small
+
+def putd(row, label, value, fmt=None, note=None, kind="formula", indent=0):
+    return put(dc, row, label, value, fmt, note, kind, indent, note_col=8)
+
+def band(row, labels, first_col=2):
+    for j, t in enumerate(labels):
+        c = dc.cell(row=row, column=first_col + j, value=t)
+        c.font = hdr_font; c.fill = hdr_fill; c.alignment = Alignment(horizontal="center")
+    return row + 1
+
+def series(row, label, values, fmt="#,##0.00", kind="input", indent=0, note=None):
+    dc.cell(row=row, column=1, value=("    " * indent) + label).font = base
+    for j, v in enumerate(values):
+        c = dc.cell(row=row, column=2 + j, value=v)
+        c.font = {"input": blue, "formula": bold, "link": green}[kind]
+        c.number_format = fmt; c.border = box
+        if kind == "input":
+            c.fill = key_fill
+    if note:
+        dc.cell(row=row, column=8, value=note).font = small
+    return row + 1
+
+r = 5
+r = header(dc, r, "1. Historical performance (reported actuals)")
+D_HH = r; r = band(r, H_YRS)
+D_HREV = r;  r = series(r, "Revenue", H_REV)
+D_HEB  = r;  r = series(r, "EBIT (operating income)", H_EBIT, note="Operating income, which EXCLUDES other income - treasury income is captured separately via net cash.")
+D_HEBM = r
+dc.cell(row=r, column=1, value="    EBIT margin").font = base
+for j in range(4):
+    c = get_column_letter(2 + j)
+    cc = dc.cell(row=r, column=2 + j, value=f"={c}{D_HEB}/{c}{D_HREV}"); cc.font = bold; cc.number_format = "0.00%"; cc.border = box
+r += 1
+D_HDA = r;  r = series(r, "Depreciation and amortisation", H_DA)
+D_HDAP = r
+dc.cell(row=r, column=1, value="    D&A % of revenue").font = base
+for j in range(4):
+    c = get_column_letter(2 + j)
+    cc = dc.cell(row=r, column=2 + j, value=f"={c}{D_HDA}/{c}{D_HREV}"); cc.font = bold; cc.number_format = "0.00%"; cc.border = box
+r += 1
+D_HCAP = r; r = series(r, "Capital expenditure", H_CAP)
+D_HCAPP = r
+dc.cell(row=r, column=1, value="    Capex % of revenue").font = base
+for j in range(4):
+    c = get_column_letter(2 + j)
+    cc = dc.cell(row=r, column=2 + j, value=f"={c}{D_HCAP}/{c}{D_HREV}"); cc.font = bold; cc.number_format = "0.00%"; cc.border = box
+r += 1
+D_HNWC = r; r = series(r, "Net working capital", H_NWC, note="Current assets less cash and investments, less current liabilities excluding current debt.")
+D_HNWCP = r
+dc.cell(row=r, column=1, value="    NWC % of revenue").font = base
+for j in range(4):
+    c = get_column_letter(2 + j)
+    cc = dc.cell(row=r, column=2 + j, value=f"={c}{D_HNWC}/{c}{D_HREV}"); cc.font = bold; cc.number_format = "0.00%"; cc.border = box
+r += 1
+D_HG = r
+dc.cell(row=r, column=1, value="    Revenue growth").font = base
+for j in range(1, 4):
+    c, p = get_column_letter(2 + j), get_column_letter(1 + j)
+    cc = dc.cell(row=r, column=2 + j, value=f"={c}{D_HREV}/{p}{D_HREV}-1"); cc.font = bold; cc.number_format = "0.00%"; cc.border = box
+dc.cell(row=r, column=8, value="FY2024-FY2026 growth of 5.0%, 6.1% and 11.1%; three-year revenue CAGR 7.4%.").font = small
+r += 2
+
+r = header(dc, r, "2. Assumptions")
+D_MARG = r; r = putd(r, "EBIT margin (held flat)", A_MARGIN, "0.00%",
+    "FY2026 actual. Margin rose from 14.9% to 21.6% over four years on softer input costs; holding it flat rather than extrapolating.", "input")
+D_DA = r;   r = putd(r, "D&A % of revenue", A_DA, "0.00%", "Three-year average (FY2024-FY2026).", "input")
+D_CAP = r;  r = putd(r, "Capex % of revenue", A_CAPEX, "0.00%", "Four-year average. Above D&A, consistent with a growing asset base.", "input")
+D_NWC = r;  r = putd(r, "NWC % of incremental revenue", A_NWC, "0.00%",
+    "Three-year average NWC intensity. Applied to the CHANGE in revenue, so no step change in the NWC level.", "input")
+D_TAX = r;  r = putd(r, "Effective tax rate", f"='Cost of Debt'!{lastcol}{R_ETR}", "0.00%", "Linked from the Cost of Debt sheet.", "link")
+D_W = r;    r = putd(r, "WACC (discount rate)", f"=WACC!B{W_WACC}", "0.00%", "Linked from the WACC sheet.", "link")
+D_TG = r;   r = putd(r, "Terminal growth rate", A_TG, "0.00%",
+    "Perpetual nominal growth. Must stay below WACC, and below the 6.97% risk-free rate - no firm outgrows its economy forever.", "input")
+r += 1
+
+r = header(dc, r, "3. Free cash flow projection")
+D_PH = r; r = band(r, P_YRS)
+D_PG = r; r = series(r, "Revenue growth", P_GROW, "0.00%", note="Fades from 10% toward the 5% terminal rate.")
+D_PREV = r
+dc.cell(row=r, column=1, value="Revenue").font = base
+for j in range(5):
+    c = get_column_letter(2 + j)
+    prev = f"{get_column_letter(1+len(H_YRS))}{D_HREV}" if j == 0 else f"{get_column_letter(1+j)}{D_PREV}"
+    cc = dc.cell(row=r, column=2 + j, value=f"={prev}*(1+{c}{D_PG})"); cc.font = bold; cc.number_format = "#,##0.00"; cc.border = box
+dc.cell(row=r, column=8, value="FY2027 grows off the FY2026 actual.").font = small
+r += 1
+def calc(row, label, tmpl, fmt="#,##0.00", boldit=True, note=None, indent=0):
+    dc.cell(row=row, column=1, value=("    " * indent) + label).font = base
+    for j in range(5):
+        c = get_column_letter(2 + j)
+        cc = dc.cell(row=row, column=2 + j, value=tmpl.format(c=c, j=j))
+        cc.font = bold if boldit else base; cc.number_format = fmt; cc.border = box
+    if note:
+        dc.cell(row=row, column=8, value=note).font = small
+    return row + 1
+D_PEB = r;  r = calc(r, "EBIT", f"={{c}}{D_PREV}*$B${D_MARG}")
+D_PTX = r;  r = calc(r, "Less: tax on EBIT", f"=-{{c}}{D_PEB}*$B${D_TAX}")
+D_PNO = r;  r = calc(r, "NOPAT", f"={{c}}{D_PEB}+{{c}}{D_PTX}")
+D_PDA = r;  r = calc(r, "Add: D&A", f"={{c}}{D_PREV}*$B${D_DA}")
+D_PCX = r;  r = calc(r, "Less: capex", f"=-{{c}}{D_PREV}*$B${D_CAP}")
+D_PWC = r
+dc.cell(row=r, column=1, value="Less: increase in NWC").font = base
+for j in range(5):
+    c = get_column_letter(2 + j)
+    prev = f"{get_column_letter(1+len(H_YRS))}{D_HREV}" if j == 0 else f"{get_column_letter(1+j)}{D_PREV}"
+    cc = dc.cell(row=r, column=2 + j, value=f"=-({c}{D_PREV}-{prev})*$B${D_NWC}")
+    cc.font = bold; cc.number_format = "#,##0.00"; cc.border = box
+dc.cell(row=r, column=8, value="NWC intensity applied to the increase in revenue.").font = small
+r += 1
+D_FCF = r; r = calc(r, "FREE CASH FLOW TO FIRM (FCFF)", f"={{c}}{D_PNO}+{{c}}{D_PDA}+{{c}}{D_PCX}+{{c}}{D_PWC}")
+for j in range(5):
+    dc.cell(row=D_FCF, column=2 + j).fill = key_fill
+dc.cell(row=D_FCF, column=1).font = Font(name=FONT, size=10, bold=True)
+D_DP = r;  r = series(r, "Discount period (years)", [1, 2, 3, 4, 5], "0", note="End-of-period discounting from the 31-Mar-2026 balance sheet date.")
+D_DF = r;  r = calc(r, "Discount factor", f"=1/(1+$B${D_W})^{{c}}{D_DP}", "0.0000")
+D_PV = r;  r = calc(r, "PV of FCFF", f"={{c}}{D_FCF}*{{c}}{D_DF}")
+r += 1
+
+r = header(dc, r, "4. Valuation")
+fc, lc = "B", get_column_letter(1 + 5)
+D_SPV = r; r = putd(r, "Sum of PV of forecast FCFF", f"=SUM({fc}{D_PV}:{lc}{D_PV})", "#,##0.00")
+D_TV = r;  r = putd(r, "Terminal value (Gordon growth)", f"={lc}{D_FCF}*(1+$B${D_TG})/($B${D_W}-$B${D_TG})", "#,##0.00",
+    "FY2031 FCFF grown one year, capitalised at WACC less terminal growth.")
+D_PTV = r; r = putd(r, "PV of terminal value", f"=B{D_TV}*{lc}{D_DF}", "#,##0.00")
+D_EV = r;  r = putd(r, "Enterprise value", f"=B{D_SPV}+B{D_PTV}", "#,##0.00")
+D_TVP = r; r = putd(r, "    Terminal value as % of EV", f"=B{D_PTV}/B{D_EV}", "0.00%",
+    "Above ~75% means the answer rests mainly on the terminal assumptions rather than the forecast.")
+D_ND = r;  r = putd(r, "Less: net debt", f"=WACC!B{W_ND}", "#,##0.00",
+    "Negative - Pidilite is net cash, so this ADDS to equity value.", "link")
+D_EQ = r;  r = putd(r, "Equity value", f"=B{D_EV}-B{D_ND}", "#,##0.00")
+D_SHR = r; r = putd(r, "Shares outstanding (crore)", f"=WACC!B{W_SH}/10000000", "#,##0.0000", None, "link")
+D_VPS = r; r = putd(r, "INTRINSIC VALUE PER SHARE (INR)", f"=B{D_EQ}/B{D_SHR}", "#,##0.00")
+dc.cell(row=D_VPS, column=1).font = Font(name=FONT, size=11, bold=True)
+dc.cell(row=D_VPS, column=2).font = Font(name=FONT, size=12, bold=True, color="C00000")
+dc.cell(row=D_VPS, column=2).fill = key_fill
+D_MP = r;  r = putd(r, "Current market price (INR)", f"=WACC!B{W_PX}", "#,##0.00", None, "link")
+D_UP = r;  r = putd(r, "Upside / (downside)", f"=B{D_VPS}/B{D_MP}-1", "0.00%",
+    "Large negative: Pidilite trades on a premium multiple that this set of assumptions does not support. See section 6.")
+r += 1
+
+r = header(dc, r, "5. Sensitivity - value per share vs WACC and terminal growth")
+gs = r
+dc.cell(row=gs, column=1, value="WACC \\ g").font = bold
+tgs = [0.04, 0.045, 0.05, 0.055, 0.06]
+for j, t in enumerate(tgs):
+    c = dc.cell(row=gs, column=2 + j, value=t); c.font = bold; c.number_format = "0.0%"
+    c.fill = PatternFill("solid", fgColor="D9E2F3"); c.border = box
+waccs = [0.1085, 0.1135, 0.1185, 0.1235, 0.1285]
+for i, w in enumerate(waccs):
+    rr = gs + 1 + i
+    c = dc.cell(row=rr, column=1, value=w); c.font = bold; c.number_format = "0.00%"
+    c.fill = PatternFill("solid", fgColor="D9E2F3"); c.border = box
+    for j in range(len(tgs)):
+        col = get_column_letter(2 + j)
+        f = (f"=(SUMPRODUCT($B${D_FCF}:${lc}${D_FCF}/(1+$A{rr})^$B${D_DP}:${lc}${D_DP})"
+             f"+${lc}${D_FCF}*(1+{col}${gs})/($A{rr}-{col}${gs})/(1+$A{rr})^${lc}${D_DP}"
+             f"-$B${D_ND})/$B${D_SHR}")
+        cc = dc.cell(row=rr, column=2 + j, value=f)
+        cc.number_format = "#,##0"; cc.font = base; cc.border = box
+r = gs + len(waccs) + 1
+dc.cell(row=r, column=1, value="Each cell re-runs the whole DCF at that WACC and terminal growth rate.").font = small
+r += 2
+
+r = header(dc, r, "6. Reverse DCF - what the market price implies")
+D_MEV = r; r = putd(r, "Enterprise value at market price", f"=WACC!B{W_E}+WACC!B{W_ND}", "#,##0.00",
+    "Market capitalisation plus net debt (which is negative here).", "link")
+D_K = r;   r = putd(r, "Terminal value the market implies", f"=(B{D_MEV}-B{D_SPV})/{lc}{D_DF}", "#,##0.00",
+    "Market EV less the PV of the forecast FCFF, un-discounted back to FY2031.")
+D_IG = r;  r = putd(r, "Implied perpetual growth rate", f"=(B{D_K}*$B${D_W}-{lc}{D_FCF})/(B{D_K}+{lc}{D_FCF})", "0.00%",
+    "Solving Gordon growth backwards. Compare with the 6.97% risk-free rate: a perpetual rate above it implies the "
+    "company eventually outgrows the whole economy, so the market is pricing in either much stronger growth, higher "
+    "margins, or a lower risk premium than this model assumes.")
+r += 1
+dc.cell(row=r, column=1, value="Read this section before treating the downside above as a recommendation - it shows which "
+                               "assumption the gap actually lives in.").font = small
+
+dc.column_dimensions["A"].width = 36
+for col in "BCDEFG":
+    dc.column_dimensions[col].width = 14
+dc.column_dimensions["H"].width = 100
+
 # ---------------- Notes sheet ----------------
 ns = wb.create_sheet("Notes")
 ns["A1"] = "Sources, definitions and assumptions"; ns["A1"].font = title
@@ -678,6 +880,31 @@ notes = [
     ("Net cash", "Cash and equivalents of Rs 232.49 crore and cash plus short-term investments of Rs 4,215.98 crore at "
                  "31-Mar-2026 both exceed total borrowings of Rs 417.21 crore, so Pidilite is net cash. Net debt is "
                  "negative, which makes a net-debt-weighted WACC meaningless; gross debt is used for the weights."),
+    ("", ""),
+    ("DCF", ""),
+    ("Method", "Free cash flow to firm: FCFF = EBIT x (1 - tax) + D&A - capex - increase in net working capital. "
+               "Five explicit forecast years (FY2027-FY2031) plus a Gordon-growth terminal value, discounted at the WACC "
+               "from the WACC sheet. Enterprise value less net debt gives equity value, divided by shares outstanding."),
+    ("Historical base", "FY2023-FY2026 consolidated actuals, same Yahoo Finance / screener.in source as the Cost of Debt sheet. "
+                        "EBIT is taken as OPERATING income, which excludes other income - treasury returns are already "
+                        "captured by adding net cash, so counting them in EBIT as well would double count them."),
+    ("Forecast assumptions", "Revenue growth fades 10% / 9% / 8% / 7% / 6% toward a 5% terminal rate, against FY2026 actual "
+                             "growth of 11.1% and a three-year CAGR of 7.4%. EBIT margin held flat at the FY2026 level of "
+                             "21.63% rather than extrapolating the 14.9% to 21.6% climb of the last four years. D&A 2.65% and "
+                             "capex 4.09% of revenue are historical averages; working capital is charged at 6.00% of the "
+                             "INCREASE in revenue. Every one of these is an input cell and can be overwritten."),
+    ("Valuation date", "Cash flows are discounted from the 31-Mar-2026 balance sheet date at whole-year end-of-period "
+                       "intervals. No stub adjustment is made for the months already elapsed in FY2027, and no mid-year "
+                       "convention is applied; both would raise the value modestly."),
+    ("Terminal value", "Carries about 74% of enterprise value, which is normal for a five-year forecast but means the answer "
+                       "is driven mainly by the terminal growth rate and the WACC. The sensitivity grid shows value per share "
+                       "across WACC of 10.85%-12.85% and terminal growth of 4.0%-6.0%."),
+    ("The result", "On these assumptions the DCF values Pidilite far below its market price. That is a statement about the "
+                   "assumptions, not a recommendation. Pidilite trades on a premium multiple (roughly 65x earnings), and a "
+                   "DCF discounting at ~11.9% with 5% perpetual growth cannot reproduce that. The reverse DCF in section 6 "
+                   "shows the market is implying a perpetual growth rate of about 10.5% - above the 6.97% risk-free rate, "
+                   "which no company can sustain forever. The honest reading is that the gap sits in the growth and margin "
+                   "assumptions, and that a five-year fade may simply be too short a runway for this franchise."),
     ("Caveats", ""),
     ("Raw beta", "No Blume or Vasicek adjustment and no risk-free rate is subtracted; this is a total-return beta, not a CAPM excess-return beta."),
     ("Stability", "Beta estimated over a 5-year window is a single point estimate and is not stable over sub-periods."),
