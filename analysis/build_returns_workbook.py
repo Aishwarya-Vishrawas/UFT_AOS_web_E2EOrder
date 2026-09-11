@@ -204,6 +204,283 @@ s.trendline = Trendline(trendlineType="linear", dispEq=True, dispRSqr=True)
 ch.series.append(s)
 rs.add_chart(ch, "E3")
 
+
+# =====================================================================
+# Cost of Equity (CAPM) and Cost of Debt sheets
+# =====================================================================
+# Every figure below that is NOT derived from the Data sheet is a hardcoded
+# input, written in blue and sourced on the Notes sheet.
+
+RF              = 0.0697   # India 10Y G-Sec yield, 10-Sep-2026 (Trading Economics)
+DIV_YIELD       = 0.0125   # NIFTY 50 long-run average dividend yield (~1.25%)
+ERP_DAMODARAN   = 0.0708   # Damodaran India total equity risk premium, Jan-2026 vintage
+NIFTY_10Y_PRICE = 0.1049   # NIFTY 50 price CAGR over the 10 years to 11-Sep-2026
+PIDI_10Y_TR     = 0.1646   # Pidilite total-return CAGR over the same 10 years
+
+# Pidilite Industries, CONSOLIDATED, INR crore. Yahoo Finance fundamentals,
+# cross-checked line by line against screener.in (both restate the same filed
+# consolidated statements). FY label = year ended 31 March.
+FY        = ["FY2023", "FY2024", "FY2025", "FY2026"]
+INTEREST  = [47.64, 51.19, 50.35, 54.22]      # finance costs
+BORROW    = [390.61, 382.47, 454.14, 417.21]  # total borrowings (incl. lease liabilities)
+BORROW_EX = [163.26, 131.15, 147.18, 105.91]  # borrowings excluding lease liabilities
+PBT       = [1723.24, 2379.35, 2822.70, 3320.17]
+TAX       = [434.37, 631.93, 726.53, 849.45]
+
+def put(sh, row, label, value, fmt=None, note=None, kind="formula", indent=0, note_col=3):
+    """Write a label/value/note line. kind drives the colour convention."""
+    c1 = sh.cell(row=row, column=1, value=("    " * indent) + label)
+    c1.font = base
+    if value is not None:
+        c2 = sh.cell(row=row, column=2, value=value)
+        c2.font = {"input": blue, "link": green, "formula": bold}[kind]
+        if fmt:
+            c2.number_format = fmt
+        c2.border = box
+        if kind == "input":
+            c2.fill = key_fill
+    if note:
+        sh.cell(row=row, column=note_col, value=note).font = small
+    return row + 1
+
+def header(sh, row, text):
+    c = sh.cell(row=row, column=1, value=text)
+    c.font = Font(name=FONT, size=11, bold=True, color="1F3864")
+    return row + 1
+
+def putk(row, label, value, fmt=None, note=None, kind="formula", indent=0):
+    """put() bound to the Cost of Equity sheet, with notes parked in column H
+    so they never collide with the B:F sensitivity grid."""
+    return put(ke, row, label, value, fmt, note, kind, indent, note_col=8)
+
+green = Font(name=FONT, size=10, color="008000")
+small = Font(name=FONT, size=9, italic=True, color="595959")
+
+# ---------------- Cost of Equity ----------------
+ke = wb.create_sheet("Cost of Equity")
+ke["A1"] = "Cost of Equity - CAPM"; ke["A1"].font = title
+ke["A2"] = "Ke  =  Risk-free rate  +  Beta x Market risk premium"
+ke["A2"].font = Font(name=FONT, size=10, italic=True)
+ke["A3"] = "Blue = hardcoded input (sourced on Notes)   Green = linked from another sheet   Black = formula"
+ke["A3"].font = small
+
+r = 5
+r = header(ke, r, "1. Inputs")
+R_RF = r
+r = putk(r, "Risk-free rate (India 10Y G-Sec)", RF, "0.00%",
+        "Benchmark 10Y G-Sec yield, 10-Sep-2026. Long-dated sovereign yield is the standard Rf for an INR DCF.", "input")
+R_BETA = r
+r = putk(r, "Beta (Pidilite vs NIFTY 50)", "=Regression!B4", "0.0000",
+        "Live link to the OLS slope on the Regression sheet - the beta calculated from 5 years of daily returns.", "link")
+R_DIVY = r
+r = putk(r, "NIFTY 50 dividend yield", DIV_YIELD, "0.00%",
+        "Long-run average (~1.25%). Added to the price-index CAGR because ^NSEI excludes dividends.", "input")
+
+r += 1
+r = header(ke, r, "2. Market return and risk premium - three approaches")
+ke.cell(row=r, column=1, value="Approach A - trailing 5-year realised (this workbook's own data)").font = Font(name=FONT, size=10, bold=True)
+r += 1
+R_N5P = r
+r = putk(r, "NIFTY 50 price CAGR, 5y", f"=(Data!C{last}/Data!C2)^(365/(Data!A{last}-Data!A2))-1", "0.00%",
+        "Computed from the first and last NIFTY 50 adjusted close on the Data sheet.", "formula", 1)
+R_RM5 = r
+r = putk(r, "Market return Rm (5y, total)", f"=B{R_N5P}+B{R_DIVY}", "0.00%", "Price CAGR plus dividend yield.", "formula", 1)
+R_MRP5 = r
+r = putk(r, "Market risk premium (5y)", f"=B{R_RM5}-B{R_RF}", "0.00%",
+        "Near zero. The 5y window opens close to the Sep-2021 peak, so the realised market return barely clears the G-Sec yield - and on a slightly different start date it falls below it, turning the premium negative.", "formula", 1)
+R_KE_A = r
+r = putk(r, "Ke - Approach A", f"=B{R_RF}+B{R_BETA}*B{R_MRP5}", "0.00%",
+        "Prices equity at roughly the cost of government debt, which cannot be right. An artefact of the start date, not an economic result - shown for completeness, not for use.", "formula", 1)
+
+r += 1
+ke.cell(row=r, column=1, value="Approach B - trailing 10-year realised").font = Font(name=FONT, size=10, bold=True)
+r += 1
+R_N10P = r
+r = putk(r, "NIFTY 50 price CAGR, 10y", NIFTY_10Y_PRICE, "0.00%",
+        "10 years to 11-Sep-2026, from the full ^NSEI history (outside this workbook's 5y Data sheet).", "input", 1)
+R_RM10 = r
+r = putk(r, "Market return Rm (10y, total)", f"=B{R_N10P}+B{R_DIVY}", "0.00%", None, "formula", 1)
+R_MRP10 = r
+r = putk(r, "Market risk premium (10y)", f"=B{R_RM10}-B{R_RF}", "0.00%", "A full cycle, so far less start-date sensitive than 5y.", "formula", 1)
+R_KE_B = r
+r = putk(r, "Ke - Approach B", f"=B{R_RF}+B{R_BETA}*B{R_MRP10}", "0.00%", None, "formula", 1)
+
+r += 1
+ke.cell(row=r, column=1, value="Approach C - forward-looking implied premium (RECOMMENDED)").font = Font(name=FONT, size=10, bold=True)
+r += 1
+R_ERP = r
+r = putk(r, "India equity risk premium", ERP_DAMODARAN, "0.00%",
+        "Damodaran implied India ERP, Jan-2026 vintage (mature-market ERP + India country risk premium).", "input", 1)
+R_KE_C = r
+r = putk(r, "Ke - Approach C", f"=B{R_RF}+B{R_BETA}*B{R_ERP}", "0.00%",
+        "Forward-looking and not hostage to the start date. This is the defensible number.", "formula", 1)
+
+r += 1
+r = header(ke, r, "3. Selected cost of equity")
+R_SEL = r
+r = putk(r, "Market risk premium used", f"=B{R_ERP}", "0.00%",
+        "Defaults to Approach C. Point this at B{a} or B{b} to switch approach.".format(a=R_MRP5, b=R_MRP10), "formula")
+R_KE = r
+r = putk(r, "COST OF EQUITY (Ke)", f"=B{R_RF}+B{R_BETA}*B{R_SEL}", "0.00%", "Ke = Rf + Beta x MRP", "formula")
+ke.cell(row=R_KE, column=1).font = Font(name=FONT, size=11, bold=True)
+ke.cell(row=R_KE, column=2).font = Font(name=FONT, size=12, bold=True, color="C00000")
+ke.cell(row=R_KE, column=2).fill = key_fill
+
+r += 1
+r = header(ke, r, "4. Pidilite's own realised return ('market rate') vs CAPM")
+R_P5 = r
+r = putk(r, "Pidilite realised total return, 5y", f"=(Data!E{last}/Data!E2)^(365/(Data!A{last}-Data!A2))-1", "0.00%",
+        "From the Data sheet adjusted closes - what the stock actually delivered over the beta window.", "formula")
+R_P10 = r
+r = putk(r, "Pidilite realised total return, 10y", PIDI_10Y_TR, "0.00%",
+        "10 years to 11-Sep-2026, from the full price history.", "input")
+r = putk(r, "Realised 5y return less Ke", f"=B{R_P5}-B{R_KE}", "0.00%",
+        "Negative means the stock under-delivered against its CAPM required return over the last 5 years.", "formula")
+
+# Sensitivity grid
+r += 1
+r = header(ke, r, "5. Sensitivity of Ke to beta and market risk premium")
+grid_top = r
+ke.cell(row=grid_top, column=1, value="Beta \\ MRP").font = bold
+mrps = [0.05, 0.06, 0.07, 0.08, 0.09]
+for j, m in enumerate(mrps):
+    c = ke.cell(row=grid_top, column=2 + j, value=m); c.font = bold; c.number_format = "0.0%"
+    c.fill = PatternFill("solid", fgColor="D9E2F3"); c.border = box
+betas = [0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85]
+for i, b in enumerate(betas):
+    rr = grid_top + 1 + i
+    c = ke.cell(row=rr, column=1, value=b); c.font = bold; c.number_format = "0.00"
+    c.fill = PatternFill("solid", fgColor="D9E2F3"); c.border = box
+    for j in range(len(mrps)):
+        col = get_column_letter(2 + j)
+        cc = ke.cell(row=rr, column=2 + j, value=f"=$B${R_RF}+$A{rr}*{col}${grid_top}")
+        cc.number_format = "0.00%"; cc.font = base; cc.border = box
+ke.cell(row=grid_top + len(betas) + 2, column=1,
+        value="Each cell is Rf + beta x MRP using the risk-free rate in B%d." % R_RF).font = small
+
+ke.column_dimensions["A"].width = 38
+for col in "BCDEFG":
+    ke.column_dimensions[col].width = 13
+ke.column_dimensions["H"].width = 100
+
+# ---------------- Cost of Debt ----------------
+kd = wb.create_sheet("Cost of Debt")
+kd["A1"] = "Cost of Debt"; kd["A1"].font = title
+kd["A2"] = "Kd  =  Total interest (finance costs)  /  Total borrowings        After-tax Kd  =  Kd x (1 - effective tax rate)"
+kd["A2"].font = Font(name=FONT, size=10, italic=True)
+kd["A3"] = "Pidilite Industries Ltd, consolidated, INR crore. Blue = reported figure (source on Notes); black = formula."
+kd["A3"].font = small
+
+hr = 5
+kd.cell(row=hr, column=1, value="INR crore").font = hdr_font
+kd.cell(row=hr, column=1).fill = hdr_fill
+for j, f in enumerate(FY):
+    c = kd.cell(row=hr, column=2 + j, value=f)
+    c.font = hdr_font; c.fill = hdr_fill; c.alignment = Alignment(horizontal="center")
+
+def line(row, label, values, fmt="#,##0.00", kind="input", note=None, indent=0):
+    c1 = kd.cell(row=row, column=1, value=("    " * indent) + label); c1.font = base
+    for j, v in enumerate(values):
+        if v is None:
+            continue
+        c = kd.cell(row=row, column=2 + j, value=v)
+        c.font = blue if kind == "input" else bold
+        c.number_format = fmt; c.border = box
+        if kind == "input":
+            c.fill = key_fill
+    if note:
+        kd.cell(row=row, column=2 + len(FY) + 1, value=note).font = small
+    return row + 1
+
+r = hr + 1
+R_INT = r
+r = line(r, "Finance costs (total interest)", INTEREST, note="Consolidated P&L finance costs; includes interest on lease liabilities.")
+R_BOR = r
+r = line(r, "Total borrowings (closing)", BORROW, note="Balance-sheet borrowings as reported, i.e. including lease liabilities.")
+R_BEX = r
+r = line(r, "   of which: borrowings excl. leases", BORROW_EX, note="Pidilite is effectively debt-free; most of the balance is Ind AS 116 lease liability.", indent=1)
+R_LSE = r
+for j in range(len(FY)):
+    col = get_column_letter(2 + j)
+    c = kd.cell(row=R_LSE, column=2 + j, value=f"={col}{R_BOR}-{col}{R_BEX}")
+    c.font = bold; c.number_format = "#,##0.00"; c.border = box
+kd.cell(row=R_LSE, column=1, value="   of which: lease liabilities").font = base
+kd.cell(row=R_LSE, column=2 + len(FY) + 1, value="Balancing figure.").font = small
+r = R_LSE + 1
+
+R_AVG = r
+kd.cell(row=r, column=1, value="Average borrowings").font = base
+for j in range(1, len(FY)):
+    col, pcol = get_column_letter(2 + j), get_column_letter(1 + j)
+    c = kd.cell(row=r, column=2 + j, value=f"=AVERAGE({pcol}{R_BOR},{col}{R_BOR})")
+    c.font = bold; c.number_format = "#,##0.00"; c.border = box
+kd.cell(row=r, column=2, value="n/a").font = small
+kd.cell(row=r, column=2 + len(FY) + 1, value="FY2023 needs the FY2022 closing balance, which is outside the pulled series.").font = small
+r += 1
+
+r += 1
+R_KDC = r
+kd.cell(row=r, column=1, value="Cost of debt - closing borrowings").font = bold
+for j in range(len(FY)):
+    col = get_column_letter(2 + j)
+    c = kd.cell(row=r, column=2 + j, value=f"={col}{R_INT}/{col}{R_BOR}")
+    c.font = bold; c.number_format = "0.00%"; c.border = box
+kd.cell(row=r, column=2 + len(FY) + 1, value="Total interest / total borrowings - the formula as specified.").font = small
+r += 1
+
+R_KDA = r
+kd.cell(row=r, column=1, value="Cost of debt - average borrowings").font = base
+for j in range(1, len(FY)):
+    col = get_column_letter(2 + j)
+    c = kd.cell(row=r, column=2 + j, value=f"={col}{R_INT}/{col}{R_AVG}")
+    c.font = bold; c.number_format = "0.00%"; c.border = box
+kd.cell(row=r, column=2 + len(FY) + 1, value="More accurate: interest accrues across the year, not on the closing balance.").font = small
+r += 1
+
+R_KDX = r
+kd.cell(row=r, column=1, value="Memo: interest / borrowings excl. leases").font = base
+for j in range(len(FY)):
+    col = get_column_letter(2 + j)
+    c = kd.cell(row=r, column=2 + j, value=f"={col}{R_INT}/{col}{R_BEX}")
+    c.font = base; c.number_format = "0.00%"; c.border = box
+kd.cell(row=r, column=2 + len(FY) + 1, value="Overstated - the numerator still contains lease interest. Shown only to expose the mismatch.").font = small
+r += 2
+
+R_PBT = r
+r = line(r, "Profit before tax", PBT)
+R_TAX = r
+r = line(r, "Tax expense", TAX)
+R_ETR = r
+kd.cell(row=r, column=1, value="Effective tax rate").font = base
+for j in range(len(FY)):
+    col = get_column_letter(2 + j)
+    c = kd.cell(row=r, column=2 + j, value=f"={col}{R_TAX}/{col}{R_PBT}")
+    c.font = bold; c.number_format = "0.00%"; c.border = box
+kd.cell(row=r, column=2 + len(FY) + 1, value="Tax expense / PBT.").font = small
+r += 1
+
+R_ATK = r
+kd.cell(row=r, column=1, value="AFTER-TAX COST OF DEBT").font = Font(name=FONT, size=11, bold=True)
+for j in range(len(FY)):
+    col = get_column_letter(2 + j)
+    c = kd.cell(row=r, column=2 + j, value=f"={col}{R_KDC}*(1-{col}{R_ETR})")
+    c.font = Font(name=FONT, size=11, bold=True, color="C00000")
+    c.number_format = "0.00%"; c.border = box; c.fill = key_fill
+kd.cell(row=r, column=2 + len(FY) + 1, value="Kd x (1 - effective tax rate), on closing borrowings.").font = small
+r += 2
+
+kd.cell(row=r, column=1, value="Latest year (FY2026) headline").font = Font(name=FONT, size=11, bold=True, color="1F3864")
+r += 1
+lastcol = get_column_letter(1 + len(FY))
+r = put(kd, r, "Cost of debt, pre-tax", f"={lastcol}{R_KDC}", "0.00%", "FY2026 finance costs / FY2026 total borrowings.", note_col=7)
+r = put(kd, r, "Effective tax rate", f"={lastcol}{R_ETR}", "0.00%", None)
+r = put(kd, r, "Cost of debt, after tax", f"={lastcol}{R_ATK}", "0.00%", "The figure that belongs in a WACC.", note_col=7)
+
+kd.column_dimensions["A"].width = 38
+for j in range(len(FY)):
+    kd.column_dimensions[get_column_letter(2 + j)].width = 13
+kd.column_dimensions[get_column_letter(2 + len(FY) + 1)].width = 95
+
 # ---------------- Notes sheet ----------------
 ns = wb.create_sheet("Notes")
 ns["A1"] = "Sources, definitions and assumptions"; ns["A1"].font = title
@@ -237,6 +514,41 @@ notes = [
     ("Recalculation", "This file was written by openpyxl, which stores formulas without cached results. "
                       "Full-calculation-on-load is set, so Excel or LibreOffice fills in every value the first time the file is opened."),
     ("", ""),
+    ("", ""),
+    ("Cost of equity", ""),
+    ("Risk-free rate", "6.97% - India 10-year benchmark G-Sec yield as at 10-Sep-2026, Trading Economics "
+                       "(https://tradingeconomics.com/india/government-bond-yield). Cross-checked at 6.96% on 04-Sep-2026. "
+                       "A 10Y sovereign yield is the conventional Rf for an INR-denominated valuation."),
+    ("Beta", "Linked live to Regression!B4 - the OLS slope computed on this workbook's own daily returns. Not retyped."),
+    ("Market return", "^NSEI is a PRICE index and excludes dividends, so a dividend yield of 1.25% (NIFTY 50 long-run average) "
+                      "is added to every price CAGR to reach a total market return."),
+    ("Why three approaches", "The trailing 5-year window opens close to the Sep-2021 market peak, so the realised NIFTY 50 total "
+                             "return lands within a few tenths of a percent of the risk-free rate. The resulting risk premium is "
+                             "approximately zero - and on a marginally different start date it goes negative, putting the cost of "
+                             "equity below Rf. Either way it is an artefact of the start date, not an economic result, and cannot "
+                             "be used on its own. "
+                             "Approaches B (10-year realised) and C (forward-looking implied premium) are shown alongside it, "
+                             "and the selected-Ke cell defaults to C."),
+    ("India ERP", "7.08% - Damodaran implied India equity risk premium, January 2026 vintage "
+                  "(https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ctryprem.html), being the mature-market ERP "
+                  "plus a 2.85% India country risk premium at a Baa3 rating. A July-2026 update quotes 7.31%."),
+    ("10-year CAGRs", "NIFTY 50 price CAGR 10.49% and Pidilite total-return CAGR 16.46%, both over the 10 years to 11-Sep-2026, "
+                      "computed from the full Yahoo Finance price history (a longer window than this workbook's 5-year Data sheet)."),
+    ("", ""),
+    ("Cost of debt", ""),
+    ("Source", "Pidilite Industries Ltd CONSOLIDATED annual financials, FY2023-FY2026 (years ended 31 March). Retrieved from the "
+               "Yahoo Finance fundamentals-timeseries API and cross-checked line by line against screener.in "
+               "(https://www.screener.in/company/PIDILITIND/consolidated/). Both restate the same statements the company files "
+               "with the exchanges; every figure used agreed between the two sources."),
+    ("NSE not reachable", "www.nseindia.com returns HTTP 403 to this environment (NSE blocks datacentre traffic), so the figures "
+                          "could not be pulled from NSE directly. The two sources above carry the same filed consolidated numbers."),
+    ("Borrowings definition", "The 'Total borrowings' line is the borrowings figure as reported, which under Ind AS 116 INCLUDES "
+                              "lease liabilities - and finance costs likewise include lease interest, so numerator and denominator "
+                              "are consistent. Pidilite is close to debt-free: of FY2026 borrowings of Rs 417.21 crore, only "
+                              "Rs 105.91 crore is actual borrowing and the rest is lease liability. Dividing total interest by "
+                              "borrowings-excluding-leases would mismatch the two, and is shown on the sheet only as a memo."),
+    ("Closing vs average", "The headline follows the requested formula (total interest / total borrowings) on closing balances. "
+                           "A cost of debt on AVERAGE borrowings is shown alongside, since interest accrues across the year."),
     ("Caveats", ""),
     ("Raw beta", "No Blume or Vasicek adjustment and no risk-free rate is subtracted; this is a total-return beta, not a CAPM excess-return beta."),
     ("Stability", "Beta estimated over a 5-year window is a single point estimate and is not stable over sub-periods."),
