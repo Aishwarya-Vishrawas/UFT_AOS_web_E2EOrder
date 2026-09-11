@@ -481,6 +481,122 @@ for j in range(len(FY)):
     kd.column_dimensions[get_column_letter(2 + j)].width = 13
 kd.column_dimensions[get_column_letter(2 + len(FY) + 1)].width = 95
 
+
+# ---------------- WACC ----------------
+# WACC = We x Ke + Wd x Kd x (1 - t).  Every driver is linked from the
+# Cost of Equity / Cost of Debt sheets so nothing is retyped.
+SHARES = 1017766288        # ordinary shares outstanding at 31-Mar-2026
+CASH_EQ = 232.49           # cash and cash equivalents, INR crore, 31-Mar-2026
+CASH_STI = 4215.98         # cash + short-term investments, INR crore, 31-Mar-2026
+
+wc = wb.create_sheet("WACC")
+wc["A1"] = "Weighted Average Cost of Capital"; wc["A1"].font = title
+wc["A2"] = "WACC  =  We x Ke  +  Wd x Kd x (1 - tax rate)"
+wc["A2"].font = Font(name=FONT, size=10, italic=True)
+wc["A3"] = "Blue = hardcoded input (sourced on Notes)   Green = linked from another sheet   Black = formula"
+wc["A3"].font = small
+
+def putw(row, label, value, fmt=None, note=None, kind="formula", indent=0):
+    return put(wc, row, label, value, fmt, note, kind, indent, note_col=8)
+
+r = 5
+r = header(wc, r, "1. Market value of equity")
+W_SH = r
+r = putw(r, "Shares outstanding", SHARES, "#,##0",
+         "Ordinary shares at 31-Mar-2026. Reconciles to the Rs 102 crore equity capital at Re 1 face value.", "input")
+W_PX = r
+r = putw(r, "Share price (INR)", f"=Data!D{last}", "#,##0.00",
+         "Latest unadjusted close on the Data sheet. Unadjusted is correct here - market cap needs the traded price.", "link")
+W_E = r
+r = putw(r, "Market value of equity (INR crore)", f"=B{W_SH}*B{W_PX}/10000000", "#,##0.00",
+         "Shares x price, converted to crore (1 crore = 10,000,000).")
+
+r += 1
+r = header(wc, r, "2. Market value of debt")
+W_D = r
+r = putw(r, "Total borrowings (INR crore)", f"='Cost of Debt'!{lastcol}{R_BOR}", "#,##0.00",
+         "FY2026 closing borrowings, linked from the Cost of Debt sheet. Book value is the standard proxy for the "
+         "market value of debt: the borrowings are short-dated and floating, so book and market value are close.", "link")
+
+r += 1
+r = header(wc, r, "3. Capital structure weights")
+W_V = r
+r = putw(r, "Total capital (D + E)", f"=B{W_E}+B{W_D}", "#,##0.00")
+W_WE = r
+r = putw(r, "Weight of equity (We)", f"=B{W_E}/B{W_V}", "0.00%")
+W_WD = r
+r = putw(r, "Weight of debt (Wd)", f"=B{W_D}/B{W_V}", "0.00%",
+         "Under 1%. Pidilite is financed almost entirely by equity, so WACC lands within a few basis points of Ke.")
+
+r += 1
+r = header(wc, r, "4. Component costs")
+W_KE = r
+r = putw(r, "Cost of equity (Ke)", f"='Cost of Equity'!B{R_KE}", "0.00%",
+         "Linked from the Cost of Equity sheet - CAPM on the regression beta.", "link")
+W_KDP = r
+r = putw(r, "Cost of debt, pre-tax (Kd)", f"='Cost of Debt'!{lastcol}{R_KDC}", "0.00%",
+         "FY2026 total interest / total borrowings, linked from the Cost of Debt sheet.", "link")
+W_T = r
+r = putw(r, "Effective tax rate", f"='Cost of Debt'!{lastcol}{R_ETR}", "0.00%", None, "link")
+W_KDA = r
+r = putw(r, "Cost of debt, after tax", f"=B{W_KDP}*(1-B{W_T})", "0.00%", "Interest is tax-deductible, so only the after-tax cost is borne.")
+
+r += 1
+r = header(wc, r, "5. WACC")
+W_CE = r
+r = putw(r, "Equity contribution", f"=B{W_WE}*B{W_KE}", "0.00%")
+W_CD = r
+r = putw(r, "Debt contribution", f"=B{W_WD}*B{W_KDA}", "0.00%")
+W_WACC = r
+r = putw(r, "WACC", f"=B{W_CE}+B{W_CD}", "0.00%", "We x Ke + Wd x after-tax Kd.")
+wc.cell(row=W_WACC, column=1).font = Font(name=FONT, size=11, bold=True)
+wc.cell(row=W_WACC, column=2).font = Font(name=FONT, size=12, bold=True, color="C00000")
+wc.cell(row=W_WACC, column=2).fill = key_fill
+W_GAP = r
+r = putw(r, "WACC less Ke", f"=B{W_WACC}-B{W_KE}", "0.00%",
+         "A few basis points. With a sub-1% debt weight the capital structure barely moves the number.")
+
+r += 1
+r = header(wc, r, "6. Memo - net cash position")
+W_C1 = r
+r = putw(r, "Cash and cash equivalents", CASH_EQ, "#,##0.00", "31-Mar-2026 consolidated balance sheet.", "input")
+W_C2 = r
+r = putw(r, "Cash + short-term investments", CASH_STI, "#,##0.00", "Includes liquid investments held as treasury.", "input")
+W_ND = r
+r = putw(r, "Net debt (borrowings - cash & investments)", f"=B{W_D}-B{W_C2}", "#,##0.00",
+         "NEGATIVE - Pidilite holds far more cash and liquid investments than borrowings, so it is net cash. "
+         "A net-debt-weighted WACC is not meaningful here; the gross-debt weighting above is used.")
+
+# Sensitivity: WACC under a target capital structure
+r += 1
+r = header(wc, r, "7. Sensitivity - WACC at a target debt weight")
+wc.cell(row=r, column=1,
+        value="Actual gearing is under 1%, so this shows what WACC would be if Pidilite levered up, holding "
+              "Ke and after-tax Kd at their current values.").font = small
+r += 1
+g = r
+wc.cell(row=g, column=1, value="Ke \\ Wd").font = bold
+wds = [0.00, 0.05, 0.10, 0.20, 0.30]
+for j, w in enumerate(wds):
+    c = wc.cell(row=g, column=2 + j, value=w); c.font = bold; c.number_format = "0%"
+    c.fill = PatternFill("solid", fgColor="D9E2F3"); c.border = box
+kes = [0.10, 0.11, 0.12, 0.13, 0.14]
+for i, k in enumerate(kes):
+    rr = g + 1 + i
+    c = wc.cell(row=rr, column=1, value=k); c.font = bold; c.number_format = "0.0%"
+    c.fill = PatternFill("solid", fgColor="D9E2F3"); c.border = box
+    for j in range(len(wds)):
+        col = get_column_letter(2 + j)
+        cc = wc.cell(row=rr, column=2 + j, value=f"=(1-{col}${g})*$A{rr}+{col}${g}*$B${W_KDA}")
+        cc.number_format = "0.00%"; cc.font = base; cc.border = box
+wc.cell(row=g + len(kes) + 2, column=1,
+        value="Each cell = (1 - Wd) x Ke + Wd x after-tax Kd, using the after-tax Kd in B%d." % W_KDA).font = small
+
+wc.column_dimensions["A"].width = 38
+for col in "BCDEFG":
+    wc.column_dimensions[col].width = 15
+wc.column_dimensions["H"].width = 100
+
 # ---------------- Notes sheet ----------------
 ns = wb.create_sheet("Notes")
 ns["A1"] = "Sources, definitions and assumptions"; ns["A1"].font = title
@@ -549,6 +665,19 @@ notes = [
                               "borrowings-excluding-leases would mismatch the two, and is shown on the sheet only as a memo."),
     ("Closing vs average", "The headline follows the requested formula (total interest / total borrowings) on closing balances. "
                            "A cost of debt on AVERAGE borrowings is shown alongside, since interest accrues across the year."),
+    ("", ""),
+    ("WACC", ""),
+    ("Weights", "Market value of equity = 1,017,766,288 shares outstanding at 31-Mar-2026 x the latest unadjusted close "
+                "from the Data sheet. Market value of debt is taken at book: the borrowings are short-dated and largely "
+                "floating or lease obligations, so book value is a close proxy and is the normal convention."),
+    ("Shares outstanding", "1,017,766,288 ordinary shares at 31-Mar-2026 (Yahoo Finance fundamentals; reconciles to the "
+                           "Rs 102 crore equity capital reported by screener.in at Re 1 face value)."),
+    ("Near-zero gearing", "Debt is under 1% of total capital, so WACC sits within a few basis points of the cost of equity. "
+                          "The sensitivity grid on the WACC sheet shows what the number would become at higher target "
+                          "debt weights, holding the component costs fixed."),
+    ("Net cash", "Cash and equivalents of Rs 232.49 crore and cash plus short-term investments of Rs 4,215.98 crore at "
+                 "31-Mar-2026 both exceed total borrowings of Rs 417.21 crore, so Pidilite is net cash. Net debt is "
+                 "negative, which makes a net-debt-weighted WACC meaningless; gross debt is used for the weights."),
     ("Caveats", ""),
     ("Raw beta", "No Blume or Vasicek adjustment and no risk-free rate is subtracted; this is a total-return beta, not a CAPM excess-return beta."),
     ("Stability", "Beta estimated over a 5-year window is a single point estimate and is not stable over sub-periods."),
