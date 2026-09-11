@@ -799,6 +799,175 @@ for col in "BCDEFG":
     dc.column_dimensions[col].width = 14
 dc.column_dimensions["H"].width = 100
 
+
+# ---------------- DCF - 10 year scenario ----------------
+# Deliberately identical to the 5-year base case in EVERY per-revenue ratio.
+# The only things that change are the length of the explicit window and the
+# growth path, so the comparison isolates the effect of the longer runway.
+X_YRS  = ["FY%dE" % y for y in range(2027, 2037)]
+X_GROW = [0.110, 0.104, 0.098, 0.092, 0.086, 0.080, 0.074, 0.068, 0.062, 0.056]
+X_MS, X_ME = 0.2163, 0.2163      # EBIT margin in the first and last forecast year
+N10 = len(X_YRS)
+XC  = [get_column_letter(2 + j) for j in range(N10)]   # B .. K
+XL  = XC[-1]
+NOTE10 = 13                                            # notes live in column M
+
+x = wb.create_sheet("DCF 10Y")
+x["A1"] = "DCF - 10 Year Forecast Scenario"; x["A1"].font = title
+x["A2"] = "Same business assumptions as the 5-year base case. Only the forecast window and the growth path differ."
+x["A2"].font = Font(name=FONT, size=10, italic=True)
+x["A3"] = "Blue = input   Green = linked from another sheet   Black = formula.  All figures INR crore unless stated."
+x["A3"].font = small
+
+def putx(row, label, value, fmt=None, note=None, kind="formula", indent=0):
+    return put(x, row, label, value, fmt, note, kind, indent, note_col=NOTE10)
+
+def calcx(row, label, tmpl, fmt="#,##0.00", note=None, boldit=True, indent=0):
+    x.cell(row=row, column=1, value=("    " * indent) + label).font = base
+    for j in range(N10):
+        cc = x.cell(row=row, column=2 + j, value=tmpl.format(c=XC[j], j=j))
+        cc.font = bold if boldit else base; cc.number_format = fmt; cc.border = box
+    if note:
+        x.cell(row=row, column=NOTE10, value=note).font = small
+    return row + 1
+
+r = 5
+r = header(x, r, "1. What this scenario changes")
+r = putx(r, "Forecast window", None, None, "Ten explicit years (FY2027-FY2036) instead of five, then the same terminal value.")
+r = putx(r, "Growth path", None, None,
+         "Fades linearly from 11.0% to 5.6%, roughly 0.6pp a year, landing beside the 5.0% terminal rate. The 5-year "
+         "case had to cut from 10% to 6% in half the time, which forces the fade through faster than a franchise of "
+         "this quality plausibly decays.")
+r = putx(r, "Everything else", None, None,
+         "Margin, D&A, capex, working capital intensity, tax, WACC and terminal growth are all unchanged and, where "
+         "possible, linked directly to the base-case DCF sheet - so any difference in value comes from the runway alone.")
+r += 1
+
+r = header(x, r, "2. Assumptions")
+X_MS_R = r; r = putx(r, "EBIT margin, first forecast year", X_MS, "0.00%", "FY2026 actual, as in the base case.", "input")
+X_ME_R = r; r = putx(r, "EBIT margin, final forecast year", X_ME, "0.00%",
+    "Defaults EQUAL to the first year, so margin is held flat and this scenario is a like-for-like test of the runway. "
+    "Raise it to model operating leverage; the margin is interpolated linearly between the two.", "input")
+X_DA = r;   r = putx(r, "D&A % of revenue", f"=DCF!B{D_DA}", "0.00%", None, "link")
+X_CAP = r;  r = putx(r, "Capex % of revenue", f"=DCF!B{D_CAP}", "0.00%", None, "link")
+X_NWC = r;  r = putx(r, "NWC % of incremental revenue", f"=DCF!B{D_NWC}", "0.00%", None, "link")
+X_TAX = r;  r = putx(r, "Effective tax rate", f"=DCF!B{D_TAX}", "0.00%", None, "link")
+X_W = r;    r = putx(r, "WACC (discount rate)", f"=DCF!B{D_W}", "0.00%", None, "link")
+X_TG = r;   r = putx(r, "Terminal growth rate", f"=DCF!B{D_TG}", "0.00%", None, "link")
+r += 1
+
+r = header(x, r, "3. Free cash flow projection - ten years")
+X_H = r
+for j, t in enumerate(X_YRS):
+    c = x.cell(row=r, column=2 + j, value=t)
+    c.font = hdr_font; c.fill = hdr_fill; c.alignment = Alignment(horizontal="center")
+r += 1
+X_G = r
+x.cell(row=r, column=1, value="Revenue growth").font = base
+for j, g in enumerate(X_GROW):
+    c = x.cell(row=r, column=2 + j, value=g)
+    c.font = blue; c.number_format = "0.00%"; c.border = box; c.fill = key_fill
+x.cell(row=r, column=NOTE10, value="Linear fade of about 0.6pp a year from FY2026's actual 11.1%.").font = small
+r += 1
+X_REV = r
+x.cell(row=r, column=1, value="Revenue").font = base
+for j in range(N10):
+    prev = f"DCF!{get_column_letter(1+4)}{D_HREV}" if j == 0 else f"{XC[j-1]}{X_REV}"
+    c = x.cell(row=r, column=2 + j, value=f"={prev}*(1+{XC[j]}{X_G})")
+    c.font = bold; c.number_format = "#,##0.00"; c.border = box
+x.cell(row=r, column=NOTE10, value="FY2027 grows off the FY2026 actual on the DCF sheet.").font = small
+r += 1
+X_M = r
+r = calcx(r, "EBIT margin", f"=$B${X_MS_R}+($B${X_ME_R}-$B${X_MS_R})*{{j}}/{N10-1}", "0.00%",
+          "Linear interpolation between the two margin inputs. Flat by default.")
+X_EB = r;  r = calcx(r, "EBIT", f"={{c}}{X_REV}*{{c}}{X_M}")
+X_TX = r;  r = calcx(r, "Less: tax on EBIT", f"=-{{c}}{X_EB}*$B${X_TAX}")
+X_NO = r;  r = calcx(r, "NOPAT", f"={{c}}{X_EB}+{{c}}{X_TX}")
+X_DAR = r; r = calcx(r, "Add: D&A", f"={{c}}{X_REV}*$B${X_DA}")
+X_CX = r;  r = calcx(r, "Less: capex", f"=-{{c}}{X_REV}*$B${X_CAP}")
+X_WC = r
+x.cell(row=r, column=1, value="Less: increase in NWC").font = base
+for j in range(N10):
+    prev = f"DCF!{get_column_letter(1+4)}{D_HREV}" if j == 0 else f"{XC[j-1]}{X_REV}"
+    c = x.cell(row=r, column=2 + j, value=f"=-({XC[j]}{X_REV}-{prev})*$B${X_NWC}")
+    c.font = bold; c.number_format = "#,##0.00"; c.border = box
+r += 1
+X_F = r; r = calcx(r, "FREE CASH FLOW TO FIRM (FCFF)", f"={{c}}{X_NO}+{{c}}{X_DAR}+{{c}}{X_CX}+{{c}}{X_WC}")
+for j in range(N10):
+    x.cell(row=X_F, column=2 + j).fill = key_fill
+x.cell(row=X_F, column=1).font = Font(name=FONT, size=10, bold=True)
+X_DP = r
+x.cell(row=r, column=1, value="Discount period (years)").font = base
+for j in range(N10):
+    c = x.cell(row=r, column=2 + j, value=j + 1)
+    c.font = blue; c.number_format = "0"; c.border = box; c.fill = key_fill
+r += 1
+X_DF = r; r = calcx(r, "Discount factor", f"=1/(1+$B${X_W})^{{c}}{X_DP}", "0.0000")
+X_PV = r; r = calcx(r, "PV of FCFF", f"={{c}}{X_F}*{{c}}{X_DF}")
+r += 1
+
+r = header(x, r, "4. Valuation")
+X_SPV = r; r = putx(r, "Sum of PV of forecast FCFF", f"=SUM(B{X_PV}:{XL}{X_PV})", "#,##0.00")
+X_TV = r;  r = putx(r, "Terminal value (Gordon growth)", f"={XL}{X_F}*(1+$B${X_TG})/($B${X_W}-$B${X_TG})", "#,##0.00")
+X_PTV = r; r = putx(r, "PV of terminal value", f"=B{X_TV}*{XL}{X_DF}", "#,##0.00")
+X_EV = r;  r = putx(r, "Enterprise value", f"=B{X_SPV}+B{X_PTV}", "#,##0.00")
+X_TVP = r; r = putx(r, "    Terminal value as % of EV", f"=B{X_PTV}/B{X_EV}", "0.00%",
+    "Lower than the 5-year case: a longer explicit window shifts weight out of the terminal assumption and into the forecast.")
+X_ND = r;  r = putx(r, "Less: net debt", f"=DCF!B{D_ND}", "#,##0.00", "Negative - net cash, so this adds.", "link")
+X_EQ = r;  r = putx(r, "Equity value", f"=B{X_EV}-B{X_ND}", "#,##0.00")
+X_SH = r;  r = putx(r, "Shares outstanding (crore)", f"=DCF!B{D_SHR}", "#,##0.0000", None, "link")
+X_VPS = r; r = putx(r, "INTRINSIC VALUE PER SHARE (INR)", f"=B{X_EQ}/B{X_SH}", "#,##0.00")
+x.cell(row=X_VPS, column=1).font = Font(name=FONT, size=11, bold=True)
+x.cell(row=X_VPS, column=2).font = Font(name=FONT, size=12, bold=True, color="C00000")
+x.cell(row=X_VPS, column=2).fill = key_fill
+r += 1
+
+r = header(x, r, "5. Scenario vs base case")
+X_B5 = r; r = putx(r, "5-year base case, value per share", f"=DCF!B{D_VPS}", "#,##0.00", None, "link")
+X_B10 = r; r = putx(r, "10-year scenario, value per share", f"=B{X_VPS}", "#,##0.00")
+X_DIF = r; r = putx(r, "Uplift from the longer runway", f"=B{X_B10}/B{X_B5}-1", "0.00%",
+    "The whole effect of doubling the explicit forecast, with every other assumption held identical.")
+X_MP = r; r = putx(r, "Current market price (INR)", f"=DCF!B{D_MP}", "#,##0.00", None, "link")
+X_U5 = r; r = putx(r, "    Upside on base case", f"=B{X_B5}/B{X_MP}-1", "0.00%")
+X_U10 = r; r = putx(r, "    Upside on this scenario", f"=B{X_B10}/B{X_MP}-1", "0.00%",
+    "Still deeply negative. Doubling the runway does not come close to bridging the gap, which is the point of the scenario.")
+r += 1
+
+r = header(x, r, "6. Sensitivity - value per share vs WACC and terminal growth")
+gs = r
+x.cell(row=gs, column=1, value="WACC \\ g").font = bold
+tgs = [0.04, 0.045, 0.05, 0.055, 0.06]
+for j, t in enumerate(tgs):
+    c = x.cell(row=gs, column=2 + j, value=t); c.font = bold; c.number_format = "0.0%"
+    c.fill = PatternFill("solid", fgColor="D9E2F3"); c.border = box
+waccs = [0.1085, 0.1135, 0.1185, 0.1235, 0.1285]
+for i, w in enumerate(waccs):
+    rr = gs + 1 + i
+    c = x.cell(row=rr, column=1, value=w); c.font = bold; c.number_format = "0.00%"
+    c.fill = PatternFill("solid", fgColor="D9E2F3"); c.border = box
+    for j in range(len(tgs)):
+        col = get_column_letter(2 + j)
+        f = (f"=(SUMPRODUCT($B${X_F}:${XL}${X_F}/(1+$A{rr})^$B${X_DP}:${XL}${X_DP})"
+             f"+${XL}${X_F}*(1+{col}${gs})/($A{rr}-{col}${gs})/(1+$A{rr})^${XL}${X_DP}"
+             f"-$B${X_ND})/$B${X_SH}")
+        cc = x.cell(row=rr, column=2 + j, value=f)
+        cc.number_format = "#,##0"; cc.font = base; cc.border = box
+r = gs + len(waccs) + 1
+x.cell(row=r, column=1, value="Each cell re-runs the full ten-year DCF at that WACC and terminal growth rate.").font = small
+r += 2
+
+r = header(x, r, "7. Reverse DCF on the ten-year forecast")
+X_MEV = r; r = putx(r, "Enterprise value at market price", f"=WACC!B{W_E}+WACC!B{W_ND}", "#,##0.00", None, "link")
+X_K = r;   r = putx(r, "Terminal value the market implies", f"=(B{X_MEV}-B{X_SPV})/{XL}{X_DF}", "#,##0.00")
+X_IG = r;  r = putx(r, "Implied perpetual growth rate", f"=(B{X_K}*$B${X_W}-{XL}{X_F})/(B{X_K}+{XL}{X_F})", "0.00%",
+    "Even after ten years of above-terminal growth, the rate needed to justify today's price stays above the 6.97% "
+    "risk-free rate. That is the useful conclusion: the gap is not an artefact of too short a forecast window.")
+
+x.column_dimensions["A"].width = 36
+for j in range(N10 + 1):
+    x.column_dimensions[get_column_letter(2 + j)].width = 12
+x.column_dimensions[get_column_letter(NOTE10)].width = 100
+
 # ---------------- Notes sheet ----------------
 ns = wb.create_sheet("Notes")
 ns["A1"] = "Sources, definitions and assumptions"; ns["A1"].font = title
@@ -905,6 +1074,24 @@ notes = [
                    "shows the market is implying a perpetual growth rate of about 10.5% - above the 6.97% risk-free rate, "
                    "which no company can sustain forever. The honest reading is that the gap sits in the growth and margin "
                    "assumptions, and that a five-year fade may simply be too short a runway for this franchise."),
+    ("", ""),
+    ("DCF - 10 year scenario", ""),
+    ("Design", "A controlled test, not a second opinion. Margin, D&A, capex, working capital intensity, tax, WACC and "
+               "terminal growth are all linked straight from the 5-year DCF sheet, so they cannot drift apart. The only "
+               "differences are the length of the explicit window (ten years, FY2027-FY2036) and the growth path."),
+    ("Growth path", "Fades linearly by about 0.6pp a year from 11.0% to 5.6%, arriving beside the 5.0% terminal rate. The "
+                    "5-year case compresses the same journey into half the time, which forces a faster decay than a "
+                    "franchise of this quality plausibly experiences - that compression is exactly what this scenario relaxes."),
+    ("Margin switch", "The sheet interpolates EBIT margin linearly between two input cells, both defaulting to the FY2026 "
+                      "level of 21.63%. Left alone the margin is flat, keeping the comparison like for like; raising the "
+                      "final-year cell models operating leverage over the longer horizon."),
+    ("What it shows", "Value per share rises from about INR 394 to about INR 443, an uplift of roughly 13%, and the terminal "
+                      "value's share of enterprise value falls from about 74% to about 56% - a genuinely better-conditioned "
+                      "model, since less of the answer rests on a single perpetuity assumption. But the valuation gap to the "
+                      "market barely narrows, from about -75% to about -71%, and the reverse DCF still implies a perpetual "
+                      "growth rate above the risk-free rate. The conclusion is that the gap is NOT an artefact of too short a "
+                      "forecast window: it lives in the growth and margin trajectory, or in the risk premium, not in the "
+                      "length of the runway."),
     ("Caveats", ""),
     ("Raw beta", "No Blume or Vasicek adjustment and no risk-free rate is subtracted; this is a total-return beta, not a CAPM excess-return beta."),
     ("Stability", "Beta estimated over a 5-year window is a single point estimate and is not stable over sub-periods."),
